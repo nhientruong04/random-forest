@@ -48,7 +48,7 @@ class RandomForestClassifier:
             train_X, train_Y, oob_X, oob_Y = self.__bootstrap_dataset(X, Y) 
 
             # train
-            tree_t = DecisionTreeClassifier(max_features="sqrt")
+            tree_t = DecisionTreeClassifier(max_features="sqrt", random_state=0)
             tree_t.fit(train_X, train_Y)
             self.trees_list.append(tree_t)
 
