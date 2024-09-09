@@ -7,7 +7,7 @@ from scipy.stats import mode
 class RandomForestClassifier:
     """The model assume oob score is used."""
 
-    def __init__(self, n_estimators):
+    def __init__(self, n_estimators=100):
         self.T = n_estimators
         self.oob_score = 0
 
@@ -20,7 +20,11 @@ class RandomForestClassifier:
         sample_indices = np.random.choice(len(X), len(X))
         oob_indices = np.setdiff1d(np.arange(X.shape[0]), sample_indices)
 
-        return X[sample_indices], Y[sample_indices], X[oob_indices], Y[oob_indices]
+        return {
+            "train_set": (X[sample_indices], Y[sample_indices]),
+            "oob_set": (X[oob_indices], Y[oob_indices]),
+            "oob_indices": oob_indices
+        }
     
     def predict(self, X):
         outputs = list()
@@ -32,20 +36,17 @@ class RandomForestClassifier:
         
         return mode(outputs, axis=0).mode
     
-    def __validate_tree(self, tree, y_true, X):
-        outputs = tree.predict(X)
-
-        return accuracy_score(y_true=y_true, y_pred=outputs)
-
     def fit(self, X, Y):
         # empty previous run
-        if len(self.trees_list) > 0:
-            self.trees_list = list()
-            self.oob_list = list()
+        self.trees_list = list()
+        self.oob_list = [list() for _ in range(X.shape[0])]
 
         for t in range(self.T):
             # get bootstrapped and oob dataset for this tree
-            train_X, train_Y, oob_X, oob_Y = self.__bootstrap_dataset(X, Y) 
+            bootstrapped_ds = self.__bootstrap_dataset(X, Y) 
+            train_X, train_Y = bootstrapped_ds["train_set"]
+            oob_X, oob_Y = bootstrapped_ds["oob_set"]
+            oob_indices = bootstrapped_ds["oob_indices"]
 
             # train
             tree_t = DecisionTreeClassifier(max_features="sqrt", random_state=0)
@@ -53,7 +54,11 @@ class RandomForestClassifier:
             self.trees_list.append(tree_t)
 
             # calculate oob accuracy for this tree
-            oob_accuracy = self.__validate_tree(tree_t, oob_Y, oob_X)
-            self.oob_list.append(oob_accuracy)
+            oob_preds = list(tree_t.predict(oob_X))
 
-        self.oob_score = np.mean(np.array(self.oob_list))
+            for i, oob_pred in enumerate(oob_preds):
+                self.oob_list[oob_indices[i]].append(oob_pred)
+
+        aggregated_oob_preds = np.array([mode(sample_pred).mode for sample_pred in self.oob_list])
+        final_oob_indices = ~np.isnan(aggregated_oob_preds)
+        self.oob_score = accuracy_score(aggregated_oob_preds[final_oob_indices], Y[final_oob_indices])
